@@ -6,7 +6,15 @@ from datetime import date
 from decimal import Decimal
 from pathlib import Path
 
-from report.expenses import Expense, ReportError, parse_row, read_expenses, summary
+from report.expenses import (
+    Expense,
+    ReportError,
+    format_totals,
+    parse_row,
+    read_expenses,
+    summary,
+    totals_by_currency,
+)
 
 ROW = {"date": "2026-10-03", "description": "Taxi", "amount": "12.50", "currency": "usd"}
 
@@ -53,6 +61,31 @@ class ReadAndSummarise(unittest.TestCase):
         self.assertEqual(summary([]), "No expenses.")
 
 
+class Totals(unittest.TestCase):
+    def mixed(self) -> list[Expense]:
+        return [
+            parse_row({**ROW, "amount": "5", "currency": "usd"}, 2),
+            parse_row({**ROW, "amount": "4.20", "currency": "eur"}, 3),
+            parse_row({**ROW, "amount": "2", "currency": "gbp"}, 4),
+            parse_row({**ROW, "amount": "6.80", "currency": "eur"}, 5),
+        ]
+
+    def test_sums_per_currency(self) -> None:
+        totals = totals_by_currency(self.mixed())
+        self.assertEqual(totals["EUR"], Decimal("11.00"))
+        self.assertEqual(totals["USD"], Decimal("5"))
+
+    def test_sorted_by_code(self) -> None:
+        self.assertEqual(list(totals_by_currency(self.mixed())), ["EUR", "GBP", "USD"])
+
+    def test_no_expenses_no_totals(self) -> None:
+        self.assertEqual(totals_by_currency([]), {})
+
+    def test_format_pads_two_decimals(self) -> None:
+        lines = format_totals({"EUR": Decimal("141.9"), "GBP": Decimal("9")})
+        self.assertEqual(lines, ["EUR 141.90", "GBP 9.00"])
+
+
 class Cli(unittest.TestCase):
     def run_cli(self, *args: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run([sys.executable, "-m", "report", *args], capture_output=True, text=True)
@@ -61,6 +94,17 @@ class Cli(unittest.TestCase):
         out = self.run_cli("data/sample.csv")
         self.assertEqual(out.returncode, 0, out.stderr)
         self.assertIn("expenses from", out.stdout)
+
+    def test_prints_totals_after_summary(self) -> None:
+        out = self.run_cli("data/sample.csv")
+        lines = out.stdout.splitlines()
+        self.assertIn("expenses from", lines[0])
+        self.assertEqual(lines[1:], ["EUR 141.90", "GBP 210.00", "USD 485.00"])
+
+    def test_header_only_file_has_no_totals(self) -> None:
+        path = write_csv("date,description,amount,currency\n")
+        out = self.run_cli(str(path))
+        self.assertEqual(out.stdout.splitlines(), ["No expenses."])
 
     def test_bad_file_exits_1(self) -> None:
         self.assertEqual(self.run_cli("missing.csv").returncode, 1)
