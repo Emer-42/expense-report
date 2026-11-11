@@ -5,7 +5,13 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from report.expenses import ReportError, read_expenses, summary
+from report.expenses import (
+    ReportError,
+    format_totals,
+    read_expenses,
+    summary,
+    totals_by_currency,
+)
 
 
 def main(argv: list[str]) -> int:
@@ -18,6 +24,8 @@ def main(argv: list[str]) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 1
     print(summary(expenses))
+    for line in format_totals(totals_by_currency(expenses)):
+        print(line)
     return 0
 
 
